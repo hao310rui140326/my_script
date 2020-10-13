@@ -1,0 +1,805 @@
+//
+//Function Description:
+//                     1. 
+//
+//Revision 
+//        Version                         Auther                      Data()                              Description
+//          0.1                           jwei                       20181109                               creat
+//          0.2                           jwei                       20181204            the cut_flag become 32channel;market type is configed by register
+//          0.3                           jwei                       20181206             output the short pkt 
+//          0.4                           jwei                       2019010             1modified the market_pkt_byte_o,output by calculate
+module parse_search_32ch #
+ (parameter [5:0] CHANNEL = 6'd32)
+ (
+  input            clk,
+  input            rst_n,
+  //signals with mac core rx
+  input            mac_st_rx_vld,
+  input    [63:0]  mac_st_rx_data,
+  input            mac_st_rx_sop,
+  input            mac_st_rx_eop,
+  input     [2:0]  mac_st_rx_byte,
+    
+  //signals with ctrl
+  input     [CHANNEL-1:0]     cut_flag,            //valid before rx_sop, valid for a pulse
+  input     [CHANNEL-1:0]     cut_reset,  
+   
+  output       [15:0]         tcp_payload_len_o,           //no jumbo pkt, <1518  ,not inclued FCS,valid  when sop is valid
+  output   reg [15:0]         tcp_payload_byte_cnt_o,
+  output   reg [CHANNEL-1:0]  fivetuplematch_o,   
+  
+  //input             market_pkt_ready,
+  output   reg         market_pkt_vld_o,
+  output   reg [63:0]  market_pkt_data_o,
+  output   reg         market_pkt_sop_o,           //start from tcp payload
+  output   reg  [3:0]  market_pkt_offset_o,        // unit of byte, the value means the invalid bytes
+  output   reg         market_pkt_eop_o,         
+  output   reg  [2:0]  market_pkt_byte_o,
+  output   reg  [15:0] first_market_byte_o,  
+  input   [4:0]  fir_rx_cstate,
+  input                  debug_st_shift_full_flag ,
+  input   [3:0]          debug_discard_calc_cnt1  ,
+  input   [15:0]         st_rx_cnt_reg        ,
+  input   [ 5:0]         st_shift_ccnt        ,
+  input   [5:0]          debug_st_shift_scnt   ,
+  input                  debug_st_shift_en     ,
+ 
+  //dbg signals
+  output   reg [63:0]      pkt_in_cnt_o,
+  output   reg [63:0]      market_pkt_cnt_o
+  );
+  
+  localparam [2:0] IDLE          = 3'b000; //wait for  new sop
+  localparam [2:0] PARSE         = 3'b001; //parse eth head
+  localparam [2:0] PAYLOAD_OUT   = 3'b011;
+  localparam [2:0] SEARCH        = 3'b010; //search for market pkt head  
+  
+  reg    [2:0]     cur_state;
+  reg    [2:0]     next_state;
+  
+  reg   [103:0]    fivetuple_pre [0:CHANNEL-1] ;   //{sip,dip,sp,dp,pro} 13B
+  reg   [103:0]    fivetuple_cur = 104'b0;   //{sip,dip,sp,dp,pro} 13B  
+  
+  reg   [CHANNEL-1:0]     cut_keep = {CHANNEL{1'b0}};
+  reg   [CHANNEL-1:0]     cut_start = {CHANNEL{1'b0}};
+  wire  [CHANNEL-1:0]     match_flag;
+  
+  reg              is_ipv4 ;
+  reg              is_tcp  ;
+
+  
+  reg              is_ipv4_flag = 1'd0 ;
+  reg              is_tcp_flag  = 1'd0 ; 
+
+
+  reg              short_pkt;
+  
+  reg  [31:0]      sip;
+  reg  [31:0]      dip;
+  reg  [7:0]       pro;
+  reg  [15:0]      sp;
+  reg  [15:0]      dp;
+  reg              parse_fivetuple_done;
+
+  wire [15:0]      pkt_total_len;
+  reg  [15:0]      ip_total_len;
+  reg  [5:0]       ip_head_len;
+  reg  [5:0]       tcp_head_len;
+  reg  [6:0]       tcp_head_offset; 
+  reg              tcp_head_start;
+  reg  [6:0]       payload_head_offset; 
+  reg              payload_head_start;
+  
+  reg             tcp_head_start_dly ;
+  reg             tcp_head_start_dly2;
+
+  
+  reg  [63:0]     payload;
+  reg  [63:0]     payload_dly; 
+  reg             payload_start;
+  
+  reg   [63:0]    mac_st_rx_data_dly;
+  reg   [63:0]    mac_st_rx_data_dly2;
+  wire            mac_rx_sop;
+  wire            mac_rx_eop;
+  reg  [15:0]     first_market_byte;
+
+  reg            search_sop;
+  reg   [2:0]    search_offset;
+  
+  reg  [11:0]     pkt_byte_cnt = 12'd0;
+
+  assign   mac_rx_sop = mac_st_rx_vld & mac_st_rx_sop;
+  assign   mac_rx_eop = mac_st_rx_vld & mac_st_rx_eop;
+  //latch the data when vld
+  always @ (posedge clk) 
+    if(mac_st_rx_vld) begin
+		mac_st_rx_data_dly   <= mac_st_rx_data;
+      mac_st_rx_data_dly2  <= mac_st_rx_data_dly;
+  end
+
+  //cal the byte of the pkt
+  always @ (posedge  clk)
+    if(mac_rx_eop)
+      pkt_byte_cnt <= 12'd0;
+    else if(mac_st_rx_vld)
+      pkt_byte_cnt <= pkt_byte_cnt + 12'd8;
+
+
+  assign pkt_total_len = ip_total_len + 16'd14;   //only consider eth+ip,others will not output
+
+  assign tcp_payload_len_o = ip_total_len - ip_head_len - tcp_head_len;
+ //############################
+ // FSM
+ //############################
+  always @(posedge clk)
+    if(!rst_n)
+      cur_state <= IDLE;
+    else
+      cur_state <= next_state;
+
+  always @(*)
+    case(cur_state)
+    IDLE:  begin
+        if(mac_rx_sop)
+			next_state = PARSE;
+        else
+            next_state = IDLE;
+    end
+  
+    PARSE:  begin
+        if(!is_ipv4  ||  !is_tcp )    //valid pkt:mac+ipv4+tcp|| short_pkt
+            next_state = IDLE;
+        else if(parse_fivetuple_done) begin
+			 if(|match_flag)
+				next_state = PAYLOAD_OUT;
+			 else
+				next_state = SEARCH;
+		end
+ 		else
+            next_state = PARSE;
+	end
+  
+    PAYLOAD_OUT: begin
+		if(mac_rx_eop)
+			next_state = IDLE;
+		else
+			next_state = PAYLOAD_OUT;
+	end  
+  
+	SEARCH: begin
+		if(mac_rx_eop)
+			next_state = IDLE;
+		else
+			next_state = SEARCH;
+	end  
+
+    default:
+        next_state = IDLE;
+    endcase
+
+
+  //keep the cut_flag until fivetuple match
+  generate
+    genvar ch;
+	 for(ch = 0; ch < CHANNEL; ch=ch+1) begin: gen_fivetuplematch
+		
+	  	 always @(posedge clk) begin
+			 if((fivetuple_pre[ch] == fivetuple_cur)&& cut_start[ch])
+				cut_keep[ch] <= 1'b0;
+			 else if (cut_reset[ch])
+				cut_keep[ch] <= 1'b0;      
+			 else if(cut_flag[ch])
+				cut_keep[ch] <=  1'b1;
+		  end	  
+			  
+		  //keep the old fivetuple for match
+		  always @(posedge clk) begin
+			 if(cut_flag[ch])
+				fivetuple_pre[ch] <= fivetuple_cur;
+		  
+		  end
+        
+		  assign match_flag[ch] = cut_keep[ch]  && (fivetuple_pre[ch] == fivetuple_cur) && cut_start[ch];
+		  
+		  //output the fivetuple match flag
+		  always @(posedge clk) begin
+			if(!rst_n)
+				fivetuplematch_o[ch] <= 1'b0;
+			else if(market_pkt_eop_o&&market_pkt_vld_o)
+				fivetuplematch_o[ch] <= 1'b0;
+			else if(match_flag[ch])
+				fivetuplematch_o[ch] <= 1'b1;
+			end
+				
+	 end
+  endgenerate   
+  
+ //############################
+ // PARSE
+ //############################ 
+  reg [7:0]  pkt_cycle_cnt = 8'b0;
+  always @(posedge clk) begin
+    if(mac_rx_eop)
+      pkt_cycle_cnt <= 8'b0;
+    else if(mac_st_rx_vld)
+      pkt_cycle_cnt <= pkt_cycle_cnt + 1'b1;
+  end
+      
+  //output ipv4+tcp, len bigger than 64 
+  always @(posedge clk) begin
+    if(mac_st_rx_vld &&(pkt_cycle_cnt == 8'd1)) begin    //parse  mac_type
+      if(mac_st_rx_data[31:16]!=16'h0800)
+        is_ipv4 <= 1'b0;
+      else
+        is_ipv4 <= 1'b1;
+    end 
+    else begin
+      is_ipv4 <= 1'b1;
+    end
+  end
+
+
+ always @(posedge clk) begin
+    if(mac_st_rx_vld &&(pkt_cycle_cnt == 8'd1)) begin    //parse  mac_type
+      if(mac_st_rx_data[31:16]!=16'h0800)
+        is_ipv4_flag <= 1'b0;
+      else
+        is_ipv4_flag <= 1'b1;
+    end 
+    //else begin
+    //  is_ipv4_flag <= 1'b1;
+    //end
+  end
+
+  always @(posedge clk) begin
+    if(mac_st_rx_vld &&(pkt_cycle_cnt == 8'd2)) begin    //parse  mac_type
+      if(mac_st_rx_data[7:0]!=8'h06)
+        is_tcp_flag <= 1'b0;
+      else
+        is_tcp_flag <= 1'b1;
+    end 
+    //else begin
+    //  is_tcp_flag <= 1'b1;
+    //end
+  end
+  
+
+
+ 
+  always @(posedge clk) begin
+    if(mac_st_rx_vld &&(pkt_cycle_cnt == 8'd2)) begin    //parse  mac_type
+      if(mac_st_rx_data[7:0]!=8'h06)
+        is_tcp <= 1'b0;
+      else
+        is_tcp <= 1'b1;
+    end 
+    else begin
+      is_tcp <= 1'b1;
+    end
+  end
+  
+//  always @(posedge clk) begin
+//    if(mac_st_rx_vld &&(pkt_cycle_cnt == 8'd2)) begin  //parse ipv4 total
+//      if(mac_st_rx_data[63:48]<=16'd46)   //64B short pkt
+//        short_pkt <= 1'b1;
+//      else
+//        short_pkt <= 1'b0;
+//    end 
+//    else begin
+//      short_pkt <= 1'b0;
+//    end
+//  end
+
+  //fivetuple,payload_len
+  always @(posedge clk) 
+    if(mac_st_rx_vld) begin
+		if(pkt_cycle_cnt == 8'd1) begin
+			tcp_head_offset    <= {mac_st_rx_data[11:8],2'b00} + 7'd14;  //dl+ip len
+			ip_head_len        <= {mac_st_rx_data[11:8],2'b00};
+		end
+		else if(pkt_cycle_cnt == 8'd2) begin 
+			pro            <=  mac_st_rx_data[7:0];
+			ip_total_len   <=  mac_st_rx_data[63:48];
+		end
+		else if(pkt_cycle_cnt == 8'd3) begin
+			sip      <= mac_st_rx_data[47:16];
+		end
+		else if(pkt_cycle_cnt == 8'd4) begin
+			dip      <= {mac_st_rx_data_dly[15:0],mac_st_rx_data[63:48]};
+		end
+    end
+   //
+
+	
+   //############looking for tcp head################# 
+  always @(posedge clk) begin
+                if ( ~is_tcp_flag  || ~is_ipv4_flag ) begin
+                     tcp_head_start <= 1'd0 ;
+                end
+                else  begin
+		case(tcp_head_offset[6:3])
+		 4'd4:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd3))
+				tcp_head_start <= 1'b1;
+			else if(mac_st_rx_vld)
+				tcp_head_start <= 1'b0;               
+		 end
+				
+		 4'd5:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd4))
+				tcp_head_start <= 1'b1;
+			else if(mac_st_rx_vld)
+				tcp_head_start <= 1'b0;               
+		 end
+		 4'd6:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd5))
+				tcp_head_start <= 1'b1;
+			else if(mac_st_rx_vld)
+				tcp_head_start <= 1'b0;               
+		 end
+		 4'd7:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd6))
+				tcp_head_start <= 1'b1;
+			else if(mac_st_rx_vld)
+				tcp_head_start <= 1'b0;               
+		 end
+		 4'd8:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd7))
+				tcp_head_start <= 1'b1;
+			else if(mac_st_rx_vld)
+				tcp_head_start <= 1'b0;               
+		 end
+	     4'd9:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd8))
+				tcp_head_start <= 1'b1;
+			else if(mac_st_rx_vld)
+				tcp_head_start <= 1'b0;               
+		 end
+		 default : begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd3))
+				tcp_head_start <= 1'b1;
+			else if(mac_st_rx_vld)
+				tcp_head_start <= 1'b0;               
+		 end
+		 
+		 endcase
+		 end
+ end
+  
+  // the tcp_head_offset value is 2B,or 6B,
+  always @(posedge clk) 
+	if(!rst_n) begin
+		tcp_head_start_dly  <= 1'b0;
+		tcp_head_start_dly2 <= 1'b0;
+	end
+	else if(mac_st_rx_vld) begin  //latch
+		tcp_head_start_dly  <= tcp_head_start ;
+		tcp_head_start_dly2 <= tcp_head_start_dly;
+		
+	end
+  //current fivetupel, 1 clk before payload start	 
+  always @(posedge clk) 
+		 case(tcp_head_offset[2:0])    //
+		 3'b010: begin
+			if(tcp_head_start & mac_st_rx_vld) begin
+            if(pkt_cycle_cnt == 8'd4)
+				  fivetuple_cur <= {sip,mac_st_rx_data_dly[15:0],mac_st_rx_data[63:48],pro,mac_st_rx_data[47:16]}; 
+				else
+				  fivetuple_cur <= {sip,dip,pro,mac_st_rx_data[47:16]};
+			end
+		end
+		
+		 3'b110: begin
+			if(tcp_head_start_dly & mac_st_rx_vld) begin
+				fivetuple_cur <= {sip,dip,pro,mac_st_rx_data_dly[15:0],mac_st_rx_data[63:48]};
+			end
+		end		
+		
+		default: begin
+			if(tcp_head_start & mac_st_rx_vld) begin
+				fivetuple_cur <= {sip,dip,pro,mac_st_rx_data[47:16]};
+			end
+		end
+		endcase  
+
+	// fivetuple parse is done
+	always @(posedge clk) 
+		if(mac_rx_eop)
+			parse_fivetuple_done  <= 1'b0;
+		else  begin
+			case(tcp_head_offset[2:0]) 
+			 3'b010: begin
+				if(tcp_head_start & mac_st_rx_vld) begin
+					parse_fivetuple_done <= 1'b1;
+				end
+			  end
+			
+			 3'b110: begin
+				if(tcp_head_start_dly) begin
+					parse_fivetuple_done <= 1'b1;
+				end
+			end		
+			
+			default: begin
+				if(tcp_head_start & mac_st_rx_vld) begin
+					parse_fivetuple_done <= 1'b1;
+				end
+			end
+			endcase 	
+		end
+
+   // fivetuple_pre updated when cut_flag is active, compare when the next packet come
+  //fix the bug when cut_flag and tcp_head_start are in the same clk,commonly, cut_flag should ahead of tcp_head_start
+  reg   [6:0]   tcp_head_offset_dly;
+  always @ (posedge clk) begin
+		 tcp_head_offset_dly <= tcp_head_offset;
+	end
+	
+	
+  generate
+    genvar chn;
+	 for(chn = 0; chn < CHANNEL; chn=chn+1) begin: gen_cut_start
+
+			always @(posedge clk) 
+				if(cut_flag[chn] && !tcp_head_start)
+					cut_start[chn]  <= 1'b0;
+				else  if(cut_keep[chn] | cut_flag[chn]) begin
+					case(tcp_head_offset[2:0]) 
+					 3'b010: begin
+						if(tcp_head_start & mac_st_rx_vld) begin
+							cut_start[chn]  <= 1'b1;
+						end
+					  end
+					
+					 3'b110: begin
+						if(tcp_head_start_dly) begin
+							cut_start[chn]  <= 1'b1;
+						end
+					end		
+					
+					default: begin
+						if(tcp_head_start & mac_st_rx_vld ) begin
+							cut_start[chn]  <= 1'b1;
+						end
+					end
+					endcase 	
+				 end
+			  else
+			    cut_start[chn]  <= 1'b0;
+		 end
+    endgenerate 	
+ 
+    always @(posedge clk) 
+		  case(tcp_head_offset[2:0])    //
+		    3'b010: begin
+				if(tcp_head_start_dly & mac_st_rx_vld) begin
+					sp           <= mac_st_rx_data_dly[47:32]; //for debug
+					dp           <= mac_st_rx_data_dly[31:16];
+					payload_head_offset <=  {mac_st_rx_data[15:12],2'b00} + tcp_head_offset;
+					tcp_head_len <= {mac_st_rx_data[15:12],2'b00};
+				end
+			end
+			
+		    3'b110: begin
+				if(tcp_head_start_dly2 & mac_st_rx_vld) begin
+					sp <= mac_st_rx_data_dly2[15:0];
+					dp <= mac_st_rx_data_dly[63:48];
+					payload_head_offset <= {mac_st_rx_data[47:44],2'b00} + tcp_head_offset;
+					tcp_head_len <= {mac_st_rx_data[47:44],2'b00};
+				end
+			end		
+			
+			default: begin
+				if(tcp_head_start_dly & mac_st_rx_vld ) begin
+					sp          <= mac_st_rx_data_dly[47:32];
+					dp          <= mac_st_rx_data_dly[31:16];
+					payload_head_offset <=  {mac_st_rx_data[15:12],2'b00} + tcp_head_offset;
+					tcp_head_len <= {mac_st_rx_data[15:12],2'b00};
+				end
+			end
+		   endcase
+    
+		
+  //############looking for payload################# 
+  always @(*) begin
+		case(payload_head_offset[6:3])
+		 4'd6:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd6))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+				
+		 4'd7:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd7))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+		 4'd8:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd8))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+		 4'd9:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd9))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+		 4'd10:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd10))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+	     4'd11:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd11))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+		 4'd1:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd1))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+		 4'd2:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd2))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+
+		 4'd3:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd3))
+				payload_head_start = 1'b1;
+			else// if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end		 
+		 
+		 4'd4:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd4))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+
+
+		 4'd5:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd5))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+
+		 4'd12:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd12))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+		 4'd13:  begin
+			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd13))
+				payload_head_start = 1'b1;
+			else //if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+		 
+		 default : begin
+//			if(mac_st_rx_vld && (pkt_cycle_cnt == 8'd5))
+//				payload_head_start <= 1'b1;
+//			else if(mac_st_rx_vld)
+				payload_head_start = 1'b0;               
+		 end
+		 
+		 endcase
+		 
+ end
+  
+
+  //payload byte cnt
+  always @(posedge clk) 
+	if(mac_rx_eop & payload_head_start & mac_st_rx_vld)
+	   tcp_payload_byte_cnt_o <= 4'd8 - mac_st_rx_byte - payload_head_offset[2:0];
+	else if(mac_rx_eop)
+	 	tcp_payload_byte_cnt_o <= tcp_payload_byte_cnt_o + (4'd8 - mac_st_rx_byte);
+	else if(payload_head_start & mac_st_rx_vld)
+		tcp_payload_byte_cnt_o <= 4'd8 - payload_head_offset[2:0];
+	else if(mac_st_rx_vld)	
+		tcp_payload_byte_cnt_o <= tcp_payload_byte_cnt_o + 4'd8;	
+	
+	
+  //############################
+  // SEARCH
+  //############################ 
+  //############search for 020000xx0100044c################# 
+    always @(*)  
+		  if(cur_state == SEARCH) begin
+			if(mac_st_rx_vld && ({mac_st_rx_data_dly[47:32],mac_st_rx_data_dly[15:0],mac_st_rx_data[63:48]}== 48'h02000100044c)) begin  //payload == 0200xxx
+				search_sop  	     = 1'b1;
+				search_offset 	     = 3'd2;
+				//first_market_byte  = mac_st_rx_data_dly[31:16];
+			end
+			else if(mac_st_rx_vld && ({mac_st_rx_data_dly[39:24],mac_st_rx_data_dly[7:0],mac_st_rx_data[63:40]}== 48'h02000100044c)) begin  //payload>>1B == 0200xxx
+				search_sop  	     = 1'b1;
+				search_offset 	     = 3'd3;
+				//first_market_byte  = mac_st_rx_data_dly[23:8];
+			end
+			else if(mac_st_rx_vld && ({mac_st_rx_data_dly[31:16],mac_st_rx_data[63:32]}== 48'h02000100044c)) begin  //payload>>2B == 0200xxx
+				search_sop  	     = 1'b1;
+				search_offset 	     = 3'd4;
+				//first_market_byte  = mac_st_rx_data_dly[15:0];
+			end
+			else if(mac_st_rx_vld && ({mac_st_rx_data_dly[23:8],mac_st_rx_data[55:24]}== 48'h02000100044c)) begin  //payload>>3B == 0200xxx
+				search_sop  	     = 1'b1;
+				search_offset 	     = 3'd5;
+				//first_market_byte  = {mac_st_rx_data_dly[7:0],mac_st_rx_data[63:56]};
+			end
+			else if(mac_st_rx_vld && ({mac_st_rx_data_dly[15:0],mac_st_rx_data[47:16]}== 48'h02000100044c)) begin  //payload>>4B == 0200xxx
+				search_sop  	     = 1'b1;
+				search_offset 	     = 3'd6;
+				//first_market_byte  = mac_st_rx_data[63:48];
+			end		
+			else if(mac_st_rx_vld &&  ({mac_st_rx_data_dly[7:0],mac_st_rx_data[63:56],mac_st_rx_data[39:8]}== 48'h02000100044c)) begin  //payload>>5B == 0200xxx
+				search_sop  	     = 1'b1;
+				search_offset 	     = 3'd7;
+				//first_market_byte  = mac_st_rx_data[55:40];
+			end		
+			else if(mac_st_rx_vld &&  ({mac_st_rx_data_dly[63:48],mac_st_rx_data_dly[31:0]}== 48'h02000100044c)) begin  //payload>>6B == 0200xxx
+				search_sop  	     = 1'b1;
+				search_offset 	     = 3'd0;
+				//first_market_byte  = mac_st_rx_data_dly[47:32];
+			end		
+			else if(mac_st_rx_vld && ({mac_st_rx_data_dly[55:40],mac_st_rx_data_dly[23:0],mac_st_rx_data[63:56]}== 48'h02000100044c)) begin  //payload>>7B == 0200xxx
+				search_sop  	     = 1'b1;
+				search_offset 	     = 3'd1;
+				//first_market_byte  = mac_st_rx_data_dly[39:24];
+			end		
+			else begin  //payload>>7B == 0200xxx
+				search_sop  	     = 1'b0;
+				search_offset 	     = 3'd0;
+				//first_market_byte  = 16'd0;
+			end	
+      end
+		else begin
+				search_sop  	     = 1'b0;
+				search_offset 	     = 3'd0;		
+		end
+
+  // first_market_byte 
+      always @(posedge clk) 
+
+			if(mac_st_rx_vld && ({mac_st_rx_data_dly[15:0],mac_st_rx_data[63:48]}== 32'h0100044c)) begin  //payload == 0200xxx
+
+				first_market_byte_o  <= mac_st_rx_data_dly[23:16];  //
+			end
+			else if(mac_st_rx_vld && ({mac_st_rx_data_dly[7:0],mac_st_rx_data[63:40]}== 32'h0100044c)) begin  //payload>>1B == 0200xxx
+
+				first_market_byte_o  <= mac_st_rx_data_dly[15:8];
+			end
+			else if(mac_st_rx_vld && ({mac_st_rx_data[63:32]}== 32'h0100044c)) begin  //payload>>2B == 0200xxx
+
+				first_market_byte_o  <= mac_st_rx_data_dly[7:0];
+			end
+			else if(mac_st_rx_vld && ({mac_st_rx_data[55:24]}== 32'h0100044c)) begin  //payload>>3B == 0200xxx
+
+				first_market_byte_o  <= {mac_st_rx_data[63:56]};
+			end
+			else if(mac_st_rx_vld && ({mac_st_rx_data[47:16]}== 32'h0100044c)) begin  //payload>>4B == 0200xxx
+
+				first_market_byte_o  <= mac_st_rx_data[55:48];
+			end		
+			else if(mac_st_rx_vld && ({mac_st_rx_data[39:8]}== 32'h0100044c)) begin  //payload>>5B == 0200xxx
+
+				first_market_byte_o  <= mac_st_rx_data[47:40];
+			end		
+			else if(mac_st_rx_vld && ({mac_st_rx_data_dly[31:0]}== 32'h0100044c)) begin  //payload>>6B == 0200xxx
+
+				first_market_byte_o  <= mac_st_rx_data_dly[39:32];
+			end		
+			else if(mac_st_rx_vld && ({mac_st_rx_data_dly[23:0],mac_st_rx_data[63:56]}== 32'h0100044c)) begin  //payload>>7B == 0200xxx
+
+				first_market_byte_o  <= mac_st_rx_data_dly[31:24];
+			end		
+
+  //############output market pkt################# 
+  //sop
+  reg    search_sop_inv = 1'b0;
+  always @(posedge clk) 	
+	if(cur_state == PAYLOAD_OUT) begin
+		market_pkt_sop_o     <= payload_head_start;
+		market_pkt_offset_o  <= payload_head_offset[2:0];
+		market_pkt_vld_o     <= mac_st_rx_vld & (payload_start|payload_head_start);
+		market_pkt_data_o    <= mac_st_rx_data;
+	end
+	else if(cur_state == SEARCH) begin
+		market_pkt_sop_o     <= search_sop & mac_st_rx_vld && (search_sop_inv == 1'b0);  //the first sop
+		market_pkt_offset_o  <= search_offset;
+		market_pkt_vld_o     <= mac_st_rx_vld & (payload_start | search_sop );
+		market_pkt_data_o    <= mac_st_rx_data;
+		
+	end		
+	else begin
+		market_pkt_sop_o     <= 1'b0;
+		market_pkt_offset_o  <= 3'b0;
+		market_pkt_vld_o     <= 1'b0;
+		market_pkt_data_o    <= 64'b0;
+	end		
+ 
+
+	
+  //output the first sop
+  always @(posedge clk) 	
+    if(cur_state == SEARCH) begin
+	  if(search_sop & mac_st_rx_vld)
+	    search_sop_inv <=  1'b1;
+	end
+	else
+	    search_sop_inv <= 5'b0;
+
+  
+  //vld
+  wire   payload_flag;
+  always @(posedge clk)
+	if(mac_rx_eop)
+		payload_start <= 1'b0;
+	else if((cur_state == PAYLOAD_OUT) && payload_head_start)
+	   payload_start <= 1'b1;
+	else if((cur_state == SEARCH) &&  search_sop)
+		payload_start <= 1'b1;
+  
+  // market_sop and eop in the same clk
+  assign payload_flag = payload_start || ((cur_state == PAYLOAD_OUT) && payload_head_start) || ((cur_state == SEARCH) &&  search_sop);
+  
+  
+  //eop and byte output 
+  always @(posedge clk) begin
+     market_pkt_eop_o  <= mac_st_rx_eop ;//& payload_flag modifed for timing
+     market_pkt_byte_o <= mac_st_rx_byte;
+	end
+  
+  //the signal of byte_o  of mac ip's output sometimes err
+//  always @ (posedge clk)
+//    if(mac_rx_eop)
+//      market_pkt_byte_o  <= 4'd8 -(pkt_total_len -pkt_byte_cnt);
+ 
+   //############dbg################# 
+	always @(posedge clk)
+	   if(!rst_n)
+		  pkt_in_cnt_o <= 'd0;
+		else if(mac_rx_sop)
+		   pkt_in_cnt_o <= pkt_in_cnt_o + 1'b1;
+			
+			
+	always @(posedge clk)
+	  if(!rst_n)
+		  market_pkt_cnt_o <= 'd0;
+	  else if(market_pkt_sop_o&&market_pkt_vld_o)
+		   market_pkt_cnt_o <= market_pkt_cnt_o + 1'b1;			
+	
+
+           
+//           ila_mac u2_2ila_mac (
+//               .clk(clk), // input wire clk
+           
+//               .probe0({market_pkt_eop_o}), // input wire [9:0]  probe0  
+//               .probe1(mac_st_rx_sop), // input wire [31:0]  probe1 
+//               .probe2(market_pkt_vld_o), // input wire [0:0]  probe2 
+//               .probe3(market_pkt_sop_o), // input wire [0:0]  probe3 
+//               .probe4({mac_st_rx_vld}), // input wire [1:0]  probe4 
+//               .probe5(mac_st_rx_data),
+//              	.probe6(market_pkt_data_o), // input wire [63:0]  probe6 
+//               .probe7(mac_st_rx_eop) ,// input wire [31:0]  probe7 // input wire [63:0]  probe4 st_rx_data
+//               .probe8({tcp_payload_len_o}), // input wire [31:0]  probe8 
+//               .probe9({market_pkt_cnt_o[31:0]}), // input wire [31:0]  probe9
+//               .probe10({mac_st_rx_byte})              
+//           );
+
+	
+	
+	
+endmodule

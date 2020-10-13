@@ -1,0 +1,33 @@
+https://www.cnblogs.com/daniaofighter/p/9452661.html
+
+
+ssh-keygen -t rsa -C "hao310rui@163.com"
+
+
+打开 Github，登录自己的账号后
+点击自己的头像->settings->SSH And GPG Keys->New SSH key
+将本地 id_rsa.pub 中的内容粘贴到 Key 文本框中，随意输入一个 title(不要有中文)，点击 Add Key 即可
+
+
+ git config --global user.name "hao310rui140326"
+ git config --global user.email "hao310rui@163.com"
+ #查看配置是否生效
+ git config --list`
+
+git init
+
+git add my*
+git commit -m "comment"
+git remote add  easyUVM-master   git@github.com:hao310rui140326/my_uvm.git
+git push  -u    easyUVM-master   master 
+
+git push -u   https://github.com/hao310rui140326/my_pe.git
+
+
+git push https://github.com/hao310rui140326/Fintech_step.git master:master
+
+
+git push -u  my_order   master:master
+
+
+
