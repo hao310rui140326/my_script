@@ -1,0 +1,477 @@
+ 
+////////////////////////////////////////////////////////////////////////////////////////////
+step_hls 
+/home/hao/wrk/my_hls/FAST_HLS/csyn
+
+///////////////////////////////////////////////////////////////////////////////////////////
+ 
+//Meld 是一个文件和目录比较工具。
+///////////////////////////////////////////////////////////////////////////////////////////
+
+  
+virt-manager
+linux虚拟机
+
+ 
+cat /etc/lsb-release
+
+ 
+
+pybombs  install gr-op25
+
+ 
+
+iio_fm_radio  90  |  aplay -r 48000  -f S16
+iio_fm_radio_play  103.4 
+
+sudo packeth
+///////////////////////////////////////////////
+
+matlab:
+	在MATLAB的命令窗口中输入
+	opengl('save', 'software')
+	回车生效
+	重启软件即可
+
+
+
+iverilog:
+	copy  myhdl.vpi to  /usr/lib64/ivl	
+	or
+	copy  myhdl.vpi to  /usr/lib/x86_64-linux-gnu/ivl
+
+//////////
+vnc   x11vnc
+
+
+
+/////
+pip  
+清华：https://pypi.tuna.tsinghua.edu.cn/simple
+中国科技大学 https://pypi.mirrors.ustc.edu.cn/simple/
+华中理工大学：http://pypi.hustunique.com/
+山东理工大学：http://pypi.sdutlinux.org/
+豆瓣：http://pypi.douban.com/simple/
+
+sudo /tools/anaconda3/bin/pip   install PyQt5  -i  https://pypi.douban.com/simple/ 
+
+
+///////////////////////////////////////////////////////////////////////
+//
+/usr/include/nettle/aes.h
+
+//net
+sudo nmap  10.159.11.*
+
+
+////////////////////////////////////////////////////////////
+sudo apt install flameshot
+
+
+clinfo
+//////////////////////////////////////////////////////
+Intel® Distribution of OpenVINO™ toolkit for Linux* 
+
+You have signed up for the Intel® Distribution of OpenVINO™ toolkit for Linux*. You will receive an email with the serial number listed below and the download location for future reference.
+
+Serial number : CCBP-C8SW8TKK
+Serial number : C6SV-S37T8RG6
+
+    Save this serial number. You may need it to activate your product in the installer.For your reference, you will receive an email that includes your serial number and download instructions.
+
+
+
+
+///////////////////////////////////
+
+sudo lshw -numeric -class video
+/////////////////////////////////////////////////
+source /opt/Xilinx/14.7/ISE_DS/settings64.sh
+
+
+
+       sudo dpkg -i 安装包名称.deb
+udo dpkg -P  *
+
+auto_run: 
+/etc/rc.local
+
+///////////////////////////////////////////////////
+powerdown:
+shutdown -h  +50
+
+reset:
+shutdown -r  +50
+
+///////////////////////////////////////////////////////////////////
+
+sudo ps -e |grep ssh
+sudo apt-get update
+sudo apt-get install openssh-server
+sudo ps -e |grep ssh
+
+service sshd start
+service sshd stop
+
+https://jingyan.baidu.com/article/54b6b9c08ff5c42d583b473c.html
+
+///////////////////////////////////////////////////////////////////////////
+
+
+python  
+myhdl
+sim:
+iverilog
+wave:
+gtkwave
+
+$dumpfile("test.vcd");
+$dumpvars(0, testbench.XX);
+$dumpvars(1, testbench.XXX);
+$dumpvars(2, testbench.XXXX);
+gtkwave,icarus支持vcd,lxt,lxt2 dump.
+vcd通用但vcd dump太大，gtkwave不太能很好的处理，导致崩溃。所以最好之前用lxt或将vcd转化为lxt格式。lxt格式是gtkwave的专用格式。gtkwave有带工具可以做此转化。
+
+
+
+
+////////////////////////////////////////////////////////////////
+
+git init .
+git log
+git add .
+git status
+git commit -s
+git log
+git branch
+
+git push https://github.com/hao310rui140326/Fintech_step.git master:master
+git push   https://github.com/hao310rui140326/my_verilog.git  master:master
+
+git submodule update --init --recursive
+
+git clone  https://gitclone.com/github.com/riscv/riscv-gnu-toolchain
+
+
+/////////////////////////////////
+
+
+
+md5sum  filenamegit loggit log
+git branch
+
+git branch
+
+
+
+fg
+killall   name
+
+
+/////////////////////////////
+
+
+
+du -h --max-depth=1   ./
+
+
+
+
+
+
+
+
+/////////////////////////////////////////////////////////
+vivado -mode batch -source create.tcl
+
+
+/home/haorui/wrk/FPGA_CLOUD/post_design/f10a_17.1_post_1/boardtest/fpga_source/sim_31
+
+/////////////////////////////////////////////////////////////
+
+
+/opt/Xilinx/SDx/Vivado/2018.3/settings64.sh
+
+
+
+/////////////////////////////////////////////////////////////////////////
+
+date -s 04/04/201
+date -s  10:58:58
+hwclock -w
+
+
+/////////////////////////////////////////////////////////////////////////
+
+
+
+
+mkfs.vfat /dev/sdb1
+
+
+///////////////////////////////////////////////
+
+svn co svn://100.3.15.30/FPGA_CLOUD
+svn co svn://100.3.15.30/DCP2.0
+svn co svn://100.3.15.30/FINACE_V0.00
+svn co svn://100.3.15.30/FINACE2_V0.00 
+
+
+
+
+/home/haorui/wrk/FPGA_CLOUD/post_design/f10a_17.1_post_1/boardtest/fpga_source/sim_31
+
+
+////////////////////////////////////////////////////
+
+xrandr --output DVI-D-1 --right-of VGA-1 --auto
+
+xrandr --output DP-1-1 --right-of VGA-1 --auto
+
+
+/////////////////////////////////////////////////////////////////
+
+
+/////////////////////////////////////////////////////////////
+
+
+/opt/Xilinx/SDx/Vivado/2018.3/settings64.sh
+
+
+****************************************************************************
+generate
+  genvar i;
+  for (i=0; i<`TOTAL_XGMII_LANE; i=i+1)
+  begin: bus_assign
+    //tx input
+    assign tx_parallel_data_10g[`TOTAL_DATA_PER_LANE*i+:`TOTAL_DATA_PER_LANE]      = xgmii_tx_dc[`TOTAL_SIGNAL_PER_LANE*i+:`TOTAL_DATA_PER_LANE];
+    assign tx_10g_control[i]                                                = xgmii_tx_dc[(`TOTAL_SIGNAL_PER_LANE*i+`TOTAL_DATA_PER_LANE)+:`TOTAL_CONTROL_PER_LANE];
+    //rx output
+    assign xgmii_rx_dc[`TOTAL_SIGNAL_PER_LANE*i+:`TOTAL_SIGNAL_PER_LANE]= {rx_10g_control[i], rx_parallel_data_1588[`TOTAL_DATA_PER_LANE*i+:`TOTAL_DATA_PER_LANE]};
+  end
+  endgenerate
+git log
+git branch
+
+
+
+/////////////////////////////////////////////////////////////////////////
+
+date -s 04/04/201
+date -s  10:58:58
+hwclock -w
+
+/////////////////////////////////////////////////////////////
+
+source aoc_inspur_1801.sh 
+
+aocl install
+
+//////////////////////////////////
+ aoc -list-boards
+Board list:
+  inspur_2bank_a10
+     Board Package: /home/yangz/f10a/0821_bsp/inspur_bsp_remote
+/home/yangz/f10a/0821_bsp/inspur_bsp_remote/hardware/f10a_sr2x8g/board_spec.xml
+///////////////////////////////////////////
+
+/home/yangz/f10a/project/tests/boardtest
+aoc -v -board=inspur_2bank_a10 boardtest.cl  -o ./ghl_ss12/boardtest.aocx
+
+
+
+
+///////////////////////////////////////////////////////////////////////////
+
+
+
+su root
+chown -R  haorui *
+chgrp -R haorui *
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////
+
+scp -r haorui@100.3.7.5:/home/haorui/wrk/mac_wrk/my_mac_20180923_v03_mem_8192_256_stp4    ./
+
+/home/haorui/wrk/20180813_succ/top_mode2_test5
+
+/home/haorui/wrk/top_mode2_test5_sim
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+http://100.3.14.87/haorui/my-pcie-dma-mac.git
+
+find ../../    -name   "*.h" | xargs -i cp {}  ./
+
+
+find  ./   -name "*mentor*"  | xargs rm -rf 
+find  ./   -name "*cadence*"  | xargs rm -rf 
+find  ./   -name "*aldec*"  | xargs rm -rf 
+find  ./   -name "*simv*"  | xargs rm -rf 
+find  ./   -name "*csrc*"  | xargs rm -rf 
+find  ./   -name "*.vpd"   | xargs rm -rf 
+find  ./   -name "*DVE*"   | xargs rm -rf 
+
+find -name "*.v"  | xargs grep  com  > output 
+
+du  -h   my-pcie-dma-mac
+
+
+///////////////////////////////////////////////////////////////////////
+/home/haorui/wrk/mac_wrk/my_mac_20180912_v03_mem_8192_256
+/home/haorui/wrk/mac_wrk/my_mac_20180912_v14_mem_8192_256
+
+/home/haorui/wrk/my_mac_20180822_v17/output_files
+
+
+./ip/ep_g3x8_avmm256_tb/DUT_pcie_tb_ip/altera_pcie_a10_tbed_171/sim/altpcietb_bfm_rp_gen3_x8.sv
+
+
+////////////////////////////////////
+
+Warning(332087): The master clock for this clock assignment could not be derived.  Clock: u0|board_a10_eth_0|CHANNEL[1]|rx_coreclkin was not created. 
+	Warning(332036): Clock: ref_clk_10g[0] found as a potential master clock candidate 
+	Warning(332036): Clock: u0|board_a10_eth_0|CHANNEL[1]|rx_pma_clk found as a potential master clock candidate 
+
+Warning(332087): The master clock for this clock assignment could not be derived.  Clock: u0|board_a10_eth_0|CHANNEL[0]|rx_coreclkin was not created. 
+	Warning(332036): Clock: ref_clk_10g[0] found as a potential master clock candidate 
+	Warning(332036): Clock: u0|board_a10_eth_0|CHANNEL[0]|rx_pma_clk found as a potential master clock candidate 
+
+Warning(332087): The master clock for this clock assignment could not be derived.  Clock: u0|board_a10_eth_0|CHANNEL[1]|tx_coreclkin was not created. 
+	Warning(332036): Clock: ref_clk_10g[0] found as a potential master clock candidate 
+	Warning(332036): Clock: u0|board_a10_eth_0|CHANNEL[1]|tx_pma_clk found as a potential master clock candidate 
+
+Warning(332087): The master clock for this clock assignment could not be derived.  Clock: u0|board_a10_eth_0|CHANNEL[0]|tx_coreclkin was not created. 
+	Warning(332036): Clock: ref_clk_10g[0] found as a potential master clock candidate 
+	Warning(332036): Clock: u0|board_a10_eth_0|CHANNEL[0]|tx_pma_clk found as a potential master clock candidate 
+
+
+
+
+/home/haorui/wrk/mac_wrk/my_mac_20180822_v04
+
+/////////////////////////////////////////////////////
+/tools/altera/license/
+license.dat
+license_altera_100G_0107.dat
+e006e64517e9_0119_new.dat
+
+////////////////////////////////////////////////
+
+/home/haorui/wrk/mac_wrk/my_mac_20180822_v01
+
+
+/home/haorui/top_17_1_0_240_DMA_Demo_restored_haorui_dma_rtl_02
+/home/haorui/top_17_1_0_240_DMA_Demo_restored_haorui_dma_rtl_02
+
+
+/home/haorui/wrk/backup/my_mac/my-pcie-dma-mac_all/my-pcie-dma-mac
+
+/home/haorui/wrk/my_dma_mac_top3/
+
+
+/home/haorui/wrk/my_pcie/ip/board/pcie_a10_hip_0_example_design
+
+
+
+
+/home/haorui/wrk/my_test/alt_em10g32_0_EXAMPLE_DESIGN
+/home/haorui/wrk/my_test/LL10G_LINESIDE_TWO_CH_PKTGEN
+/home/haorui/wrk/my_test/PCIE_TWO_CH_MAC
+
+/home/haorui/wrk/top_17_1_0_240_DMA_Demo_restored_2
+/home/haorui/wrk/top_17_1_0_240_DMA_Demo_restored
+/home/haorui/wrk/top_17_1_0_240_DMA_Demo_restored_haorui_dma_rtl
+
+
+/home/haorui/wrk/backup/pcie_ddr4_8gx2_example_v1
+
+
+/home/haorui/wrk/LL10G_LINESIDE_ONE_CH_LP
+
+
+/home/haorui/wrk/pcie_s10_avalon_mm_test
+
+vcs:
+-cpp g++-4.8 -cc gcc-4.8  
+
+ yum install zlib*.i686
+ yum install glibc-devel
+ yum -y install glibc-devel.i686
+
+ yum whatprovides libSM.so.6
+ yum -y install libSM-1.2.1-2.el6.i686
+
+ /tools/synopsys/vcs-mx_vI-2014.03/bin/vcs
+
+
+modelsim:
+/tools/altera/modelsim_15.0/modelsim_ase/bin/vsim
+
+create:
+tar -zcvf  *.tar.gz  *
+release:
+tar -zxvf  *.tar.gz  * 
+
+unzip *.zip 
+
+tar是在Linux中使用得非常广泛的文档打包格式。它的好处就是它只消耗非常少的CPU以及时间去打包文件，他仅仅只是一个打包工具，并不负责压缩。下面是如何打包一个目录：
+
+# tar -cvf archive_name.tar directory_to_compress
+
+如何解包：
+
+# tar -xvf archive_name.tar.gz
+
+rar x  eetop.cn_ISE147_Crack.rar
+
+///////////////////////////////////////////////////////
+
+/home/haorui/wrk/my_test/alt_em10g32_0_EXAMPLE_DESIGN/LL10G_LINESIDE/simulation/ed_sim/synopsys/vcs
+
+/home/haorui/wrk/my_test/pcie_a10_hip_0_example_design/pcie_example_design_tb/pcie_example_design_tb/sim/synopsys/vcs2
+
+
+///////////////////////////////////////////////////////////////////////////
+
+ -P  /tools/novas/Novas201101/share/PLI/VCS/LINUX/novas.tab   /tools/novas/Novas201101/share/PLI/VCS/LINUX/pli.a 
+
+
+
+
+module tb_top();
+
+initial begin 
+$fsdbAutoSwitchDumpfile(1000,"mac.fsdb",100);
+$fsdbDumpvars(0,tb_top);
+$fsdbDumpon;
+//$fsdbDumpoff;
+end
+
+endmodule 
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////
++vcd+vcdpluson
+
+initial begin
+$vcdpluson;
+end
+
+
+
+
+
+
+
+
